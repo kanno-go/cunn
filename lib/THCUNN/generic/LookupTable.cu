@@ -12,8 +12,9 @@ void THNN_(LookupTable_accGradParameters)(
            THCIndexTensor *indices,
            bool scaleGradByFreq,
            int paddingValue,
-           real scale)
+           accreal scale_)
 {
+  real scale = ScalarConvert<accreal, real>::to(scale_);
   THCUNN_assertSameGPU(state, 5, input, gradOutput, gradWeight, sorted, indices);
   gradOutput = THCTensor_(newContiguous)(state, gradOutput);
   if (!(THCIndexTensor_(isContiguous)(state, input) &&
@@ -42,6 +43,7 @@ void THNN_(LookupTable_accGradParameters)(
       numel,
       stride,
       paddingValue);
+    THCTensor_(free)(state, gradOutput);
     THCudaCheck(cudaGetLastError());
     return;
   }
@@ -63,6 +65,7 @@ void THNN_(LookupTable_accGradParameters)(
     THCIndexTensor_(resizeAs)(state, count, input);
     count_data = THCIndexTensor_(data)(state, count);
 
+    THCThrustAllocator thrustAlloc(state);
     thrust::device_ptr<THCIndex_t> sorted_ptr(sorted_data);
     thrust::device_ptr<THCIndex_t> count_ptr(count_data);
 
@@ -71,7 +74,7 @@ void THNN_(LookupTable_accGradParameters)(
     //  count: 1 1 2 3 1 2 1 1 2
     thrust::inclusive_scan_by_key(
 #if CUDA_VERSION >= 7000
-      thrust::cuda::par.on(THCState_getCurrentStream(state)),
+      thrust::cuda::par(thrustAlloc).on(THCState_getCurrentStream(state)),
 #endif
       sorted_ptr,
       sorted_ptr + numel,
@@ -84,7 +87,7 @@ void THNN_(LookupTable_accGradParameters)(
     //  count: 1 3 3 3 2 2 1 2 2
     thrust::inclusive_scan_by_key(
 #if CUDA_VERSION >= 7000
-      thrust::cuda::par.on(THCState_getCurrentStream(state)),
+      thrust::cuda::par(thrustAlloc).on(THCState_getCurrentStream(state)),
 #endif
       thrust::make_reverse_iterator(sorted_ptr + numel),
       thrust::make_reverse_iterator(sorted_ptr),
@@ -117,9 +120,11 @@ void THNN_(LookupTable_renorm)(
            THCState *state,
            THCIndexTensor *idx,
            THCTensor *weight,
-           real maxNorm,
-           real normType)
+           accreal maxNorm_,
+           accreal normType_)
 {
+  real maxNorm = ScalarConvert<accreal, real>::to(maxNorm_);
+  real normType = ScalarConvert<accreal, real>::to(normType_);
   THCUNN_assertSameGPU(state, 2, idx, weight);
   if (!(THCIndexTensor_(isContiguous)(state, idx) &&
         THCTensor_(isContiguous)(state, weight)))
