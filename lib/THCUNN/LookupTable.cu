@@ -47,7 +47,7 @@ __device__ __forceinline__ bool warpHasCollision(int val)
 
 #endif
 
-  return __any(dup) != 0;
+  return WARP_ANY(dup) != 0;
 }
 
 template <typename Dtype>
