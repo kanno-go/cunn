@@ -13,6 +13,7 @@
 #include "THCHalf.h"
 #include "THCHalfAutoNumerics.cuh"
 #include "THCTensorSort.cuh"
+#include "THCDeviceUtils.cuh"
 
 const int WARP_SIZE = 32;
 
@@ -29,7 +30,7 @@ __device__ __forceinline__ bool warpHasCollision(int val)
   #pragma unroll
   for (int i = 1; i <= 16; i++)
   {
-    dup |= (__shfl(val, (laneId + i) % 32) == val);
+    dup |= (WARP_SHFL(val, (laneId + i) % 32) == val);
   }
 
 #else
