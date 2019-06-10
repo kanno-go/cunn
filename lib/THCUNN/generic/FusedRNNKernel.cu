@@ -82,7 +82,7 @@ bool THNN_(canUse32BitIndexMath)(THCState *state, int count, ...)
 
 template <typename T, typename IndexType, int Dims>
 #if __CUDA_ARCH__ >= 350
-__launch_bounds__(32 * 16, 4)
+__launch_bounds__(CUDA_NUM_THREADS)
 #endif
 __global__ void
   THNN_(GRUForward)(TensorInfo<T, IndexType> Input,
@@ -181,7 +181,7 @@ __global__ void
 
 template <typename T, typename IndexType, int Dims>
 #if __CUDA_ARCH__ >= 350
-__launch_bounds__(32 * 16, 4)
+__launch_bounds__(CUDA_NUM_THREADS)
 #endif
 __global__ void
 THNN_(GRUBackward)(TensorInfo<T, IndexType> input,
@@ -247,7 +247,7 @@ THNN_(GRUBackward)(TensorInfo<T, IndexType> input,
 
 template <typename T, typename IndexType, int Dims>
 #if __CUDA_ARCH__ >= 350
-__launch_bounds__(32 * 16, 4)
+__launch_bounds__(CUDA_NUM_THREADS)
 #endif
 __global__ void
   THNN_(LSTMForward)(TensorInfo<T, IndexType> input,
@@ -361,7 +361,7 @@ __global__ void
 
 template <typename T, typename IndexType, int Dims>
 #if __CUDA_ARCH__ >= 350
-__launch_bounds__(32 * 16, 4)
+__launch_bounds__(CUDA_NUM_THREADS)
 #endif
 __global__ void
   THNN_(LSTMBackward)(TensorInfo<T, IndexType> input,
