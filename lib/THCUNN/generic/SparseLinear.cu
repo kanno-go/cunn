@@ -45,7 +45,7 @@ void THNN_(SparseLinear_updateOutput)(
   THArgCheck(checkSize1D(bias, outDim), 5, "bias size wrong");
 
   weight = THCTensor_(newContiguous)(state, weight);
-  
+
   long batchnum = THCTensor_(size)(state, output, 0);
   long nnz = THCTensor_(size)(state, input, 0);
 
@@ -87,6 +87,83 @@ void THNN_(SparseLinear_updateOutput)(
 
   // output = W * x
   real one = ScalarConvert<int, real>::to(1);
+
+#if CUDA_VERSION >= 11000
+  int64_t m = batchnum;
+  int64_t n = outDim;
+  int64_t k = inDim;
+  int64_t nnz64 = nnz;
+  #ifdef THC_REAL_IS_FLOAT
+  cudaDataType cusparse_value_type = CUDA_R_32F;
+  #elif defined(THC_REAL_IS_DOUBLE)
+  cudaDataType cusparse_value_type = CUDA_R_64F;
+  #elif defined(THC_REAL_IS_HALF)
+  cudaDataType cusparse_value_type = CUDA_R_16F;
+  #endif
+
+  cusparseSpMatDescr_t descA;
+  cusparseCreateCsr(
+    &descA,                               /* output */
+    m, k, nnz64,                          /* rows, cols, number of non zero elements */
+    THCudaIntTensor_data(state, csrPtrs), /* row offsets of the sparse matrix, size = rows +1 */
+    THCudaIntTensor_data(state, colInds), /* column indices of the sparse matrix, size = nnz */
+    THCTensor_(data)(state, values),      /* values of the sparse matrix, size = nnz */
+    CUSPARSE_INDEX_32I,                   /* data type of row offsets index */
+    CUSPARSE_INDEX_32I,                   /* data type of col indices */
+    CUSPARSE_INDEX_BASE_ZERO,             /* base index of row offset and col indes */
+    cusparse_value_type                   /* data type of values */
+  );
+
+  cusparseDnMatDescr_t descB;
+  cusparseCreateDnMat(
+    &descB,                               /* output */
+    k, n, inDim,                          /* rows, cols, leading dimension */
+    THCTensor_(data)(state, weight),      /* values */
+    cusparse_value_type,                  /* data type of values */
+    CUSPARSE_ORDER_COL                    /* memory layout, ONLY column-major is supported now */
+  );
+
+  cusparseDnMatDescr_t descC;
+  cusparseCreateDnMat(
+    &descC,                               /* output */
+    m, n, batchnum,                       /* rows, cols, leading dimension */
+    THCTensor_(data)(state, buffer),      /* values */
+    cusparse_value_type,                  /* data type of values */
+    CUSPARSE_ORDER_COL                    /* memory layout, ONLY column-major is supported now */
+  );
+
+  // cusparseSpMM_bufferSize returns the bufferSize that can be used by cusparseSpMM
+  size_t bufferSize;
+  cusparseSpMM_bufferSize(
+    cusparse_handle, CUSPARSE_OPERATION_NON_TRANSPOSE, CUSPARSE_OPERATION_NON_TRANSPOSE,
+    &one,
+    descA, descB,
+    &one,
+    descC,
+    cusparse_value_type,    /* data type in which the computation is executed */
+    CUSPARSE_SPMM_CSR_ALG1, /* default computing algorithm for CSR sparse matrix format */
+    &bufferSize             /* output */
+  );
+
+  void *external_buffer;
+  THCudaMalloc(state, &external_buffer, bufferSize);
+
+  cusparseSpMM(
+    cusparse_handle, CUSPARSE_OPERATION_NON_TRANSPOSE, CUSPARSE_OPERATION_NON_TRANSPOSE,
+    &one,
+    descA, descB,
+    &one,
+    descC,
+    cusparse_value_type,    /* data type in which the computation is executed */
+    CUSPARSE_SPMM_CSR_ALG1, /* default computing algorithm for CSR sparse matrix format */
+    external_buffer         /* external buffer */
+  );
+
+  cusparseDestroySpMat(descA);
+  cusparseDestroyDnMat(descB);
+  cusparseDestroyDnMat(descC);
+  THCudaFree(state, external_buffer);
+#else
   cusparseMatDescr_t descr = 0;
   cusparseCreateMatDescr(&descr);
   cusparseSetMatType(descr,CUSPARSE_MATRIX_TYPE_GENERAL);
@@ -108,11 +185,11 @@ void THNN_(SparseLinear_updateOutput)(
   );
   THCTensor_(transpose)(state, buffer, NULL, 0, 1);
 
+  cusparseDestroyMatDescr(descr);
+#endif
   // We do work in the buffer to keep the output contiguous
   THCTensor_(copy)(state, output, buffer);
 
-  cusparseDestroyMatDescr(descr);
-  descr = 0;
   THCTensor_(free)(state, buffer);
   THCTensor_(free)(state, sel);
   THCTensor_(free)(state, values);
@@ -186,6 +263,83 @@ void THNN_(SparseLinear_accGradParameters)(
   THCTensor_(free)(state, tgradOutput);
 
   real one = ScalarConvert<int, real>::to(1);
+  
+#if CUDA_VERSION >= 11000
+  int64_t m = inDim;
+  int64_t n = outDim;
+  int64_t k = batchnum;
+  int64_t nnz64 = nnz;
+  #ifdef THC_REAL_IS_FLOAT
+  cudaDataType cusparse_value_type = CUDA_R_32F;
+  #elif defined(THC_REAL_IS_DOUBLE)
+  cudaDataType cusparse_value_type = CUDA_R_64F;
+  #elif defined(THC_REAL_IS_HALF)
+  cudaDataType cusparse_value_type = CUDA_R_16F;
+  #endif
+
+  cusparseSpMatDescr_t descA;
+  cusparseCreateCsr(
+    &descA,                               /* output */
+    m, k, nnz64,                          /* rows, cols, number of non zero elements */
+    THCudaIntTensor_data(state, colPtrs), /* row offsets of the sparse matrix, size = rows +1 */
+    THCudaIntTensor_data(state, rowInds), /* column indices of the sparse matrix, size = nnz */
+    THCTensor_(data)(state, values),      /* values of the sparse matrix, size = nnz */
+    CUSPARSE_INDEX_32I,                   /* data type of row offsets index */
+    CUSPARSE_INDEX_32I,                   /* data type of col indices */
+    CUSPARSE_INDEX_BASE_ZERO,             /* base index of row offset and col indes */
+    cusparse_value_type                   /* data type of values */
+  );
+
+  cusparseDnMatDescr_t descB;
+  cusparseCreateDnMat(
+    &descB,                               /* output */
+    k, n, batchnum,                          /* rows, cols, leading dimension */
+    THCTensor_(data)(state, buf),         /* values */
+    cusparse_value_type,                  /* data type of values */
+    CUSPARSE_ORDER_COL                    /* memory layout, ONLY column-major is supported now */
+  );
+
+  cusparseDnMatDescr_t descC;
+  cusparseCreateDnMat(
+    &descC,                               /* output */
+    m, n, inDim,                       /* rows, cols, leading dimension */
+    THCTensor_(data)(state, gradWeight),         /* values */
+    cusparse_value_type,                  /* data type of values */
+    CUSPARSE_ORDER_COL                    /* memory layout, ONLY column-major is supported now */
+  );
+
+  // cusparseSpMM_bufferSize returns the bufferSize that can be used by cusparseSpMM
+  size_t bufferSize;
+  cusparseSpMM_bufferSize(
+    cusparse_handle, CUSPARSE_OPERATION_NON_TRANSPOSE, CUSPARSE_OPERATION_NON_TRANSPOSE,
+    &one,
+    descA, descB,
+    &one,
+    descC,
+    cusparse_value_type,    /* data type in which the computation is executed */
+    CUSPARSE_SPMM_CSR_ALG1, /* default computing algorithm for CSR sparse matrix format */
+    &bufferSize             /* output */
+  );
+
+  void *external_buffer;
+  THCudaMalloc(state, &external_buffer, bufferSize);
+
+  cusparseSpMM(
+    cusparse_handle, CUSPARSE_OPERATION_NON_TRANSPOSE, CUSPARSE_OPERATION_NON_TRANSPOSE,
+    &one,
+    descA, descB,
+    &one,
+    descC,
+    cusparse_value_type,    /* data type in which the computation is executed */
+    CUSPARSE_SPMM_CSR_ALG1, /* default computing algorithm for CSR sparse matrix format */
+    external_buffer         /* external buffer */
+  );
+
+  cusparseDestroySpMat(descA);
+  cusparseDestroyDnMat(descB);
+  cusparseDestroyDnMat(descC);
+  THCudaFree(state, external_buffer);
+#else
   cusparseMatDescr_t descr = 0;
   cusparseCreateMatDescr(&descr);
   cusparseSetMatType(descr,CUSPARSE_MATRIX_TYPE_GENERAL);
@@ -205,6 +359,8 @@ void THNN_(SparseLinear_accGradParameters)(
       THCTensor_(data)(state, buf), batchnum,
       &one, THCTensor_(data)(state, gradWeight), inDim
   );
+  cusparseDestroyMatDescr(descr);
+#endif
 
   THCTensor_(sum)(state, buf, gradOutput, 0, 1);
   THCTensor_(resize1d)(state, buf, outDim);
