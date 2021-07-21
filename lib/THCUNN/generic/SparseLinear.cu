@@ -110,7 +110,7 @@ void THNN_(SparseLinear_updateOutput)(
     THCTensor_(data)(state, values),      /* values of the sparse matrix, size = nnz */
     CUSPARSE_INDEX_32I,                   /* data type of row offsets index */
     CUSPARSE_INDEX_32I,                   /* data type of col indices */
-    CUSPARSE_INDEX_BASE_ZERO,             /* base index of row offset and col indes */
+    CUSPARSE_INDEX_BASE_ONE,              /* base index of row offset and col indes */
     cusparse_value_type                   /* data type of values */
   );
 
@@ -286,14 +286,14 @@ void THNN_(SparseLinear_accGradParameters)(
     THCTensor_(data)(state, values),      /* values of the sparse matrix, size = nnz */
     CUSPARSE_INDEX_32I,                   /* data type of row offsets index */
     CUSPARSE_INDEX_32I,                   /* data type of col indices */
-    CUSPARSE_INDEX_BASE_ZERO,             /* base index of row offset and col indes */
+    CUSPARSE_INDEX_BASE_ONE,              /* base index of row offset and col indes */
     cusparse_value_type                   /* data type of values */
   );
 
   cusparseDnMatDescr_t descB;
   cusparseCreateDnMat(
     &descB,                               /* output */
-    k, n, batchnum,                          /* rows, cols, leading dimension */
+    k, n, batchnum,                       /* rows, cols, leading dimension */
     THCTensor_(data)(state, buf),         /* values */
     cusparse_value_type,                  /* data type of values */
     CUSPARSE_ORDER_COL                    /* memory layout, ONLY column-major is supported now */
@@ -302,8 +302,8 @@ void THNN_(SparseLinear_accGradParameters)(
   cusparseDnMatDescr_t descC;
   cusparseCreateDnMat(
     &descC,                               /* output */
-    m, n, inDim,                       /* rows, cols, leading dimension */
-    THCTensor_(data)(state, gradWeight),         /* values */
+    m, n, inDim,                          /* rows, cols, leading dimension */
+    THCTensor_(data)(state, gradWeight),  /* values */
     cusparse_value_type,                  /* data type of values */
     CUSPARSE_ORDER_COL                    /* memory layout, ONLY column-major is supported now */
   );
